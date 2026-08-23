@@ -282,7 +282,7 @@ bot.action(
 
 
             // ==========================================
-            // Get Undo Request
+            // Find Undo Request
             // ==========================================
 
             const undoRequest =
@@ -294,11 +294,7 @@ bot.action(
             if (!undoRequest) {
 
                 await ctx.answerCbQuery(
-                    "Undo request not found."
-                );
-
-                await ctx.reply(
-                    "❌ This undo request no longer exists."
+                    "Request not found."
                 );
 
                 return;
@@ -306,7 +302,7 @@ bot.action(
 
 
             // ==========================================
-            // Check request status
+            // Check status
             // ==========================================
 
             if (
@@ -314,11 +310,11 @@ bot.action(
             ) {
 
                 await ctx.answerCbQuery(
-                    "This request has already been processed."
+                    "Request already processed."
                 );
 
                 await ctx.reply(
-                    `⚠️ This request is already ${undoRequest.status}.`
+                    `⚠️ Request is already ${undoRequest.status}.`
                 );
 
                 return;
@@ -326,7 +322,7 @@ bot.action(
 
 
             // ==========================================
-            // Find transaction
+            // Find Transaction
             // ==========================================
 
             const transaction =
@@ -361,9 +357,24 @@ bot.action(
                     "Only purchases can be deleted."
                 );
 
-                await ctx.reply(
-                    "❌ This transaction is not a purchase.\n\n" +
-                    "The transaction was NOT deleted."
+                return;
+            }
+
+
+            // ==========================================
+            // Find Customer
+            // ==========================================
+
+            const customer =
+                await User.findById(
+                    undoRequest.customerId
+                );
+
+
+            if (!customer) {
+
+                await ctx.answerCbQuery(
+                    "Customer not found."
                 );
 
                 return;
@@ -389,29 +400,52 @@ bot.action(
 
 
             // ==========================================
-            // Answer Telegram callback
+            // Owner callback response
             // ==========================================
 
             await ctx.answerCbQuery(
-                "Transaction deleted successfully."
+                "Transaction deleted."
             );
 
 
             // ==========================================
-            // Notify owner
+            // Owner message
             // ==========================================
 
             await ctx.reply(
 
                 "✅ *Undo Approved*\n\n" +
 
-                `🛒 Purchase: ₹${transaction.amount}\n` +
+                `👤 Customer: ${customer.name}\n` +
 
-                `📌 Transaction ID: ${transaction._id}\n\n` +
+                `🛒 Purchase: ₹${transaction.amount}\n\n` +
 
                 "🗑 Transaction has been deleted.\n" +
 
-                "📌 Undo request marked as APPROVED.",
+                "📌 Request marked as APPROVED.",
+
+                {
+                    parse_mode: "Markdown"
+                }
+
+            );
+
+
+            // ==========================================
+            // Notify Customer
+            // ==========================================
+
+            await bot.telegram.sendMessage(
+
+                customer.telegramUserId,
+
+                "✅ *Undo Request Approved*\n\n" +
+
+                `🛒 Purchase: ₹${transaction.amount}\n\n` +
+
+                "The shop owner approved your undo request.\n\n" +
+
+                "🗑 The transaction has been removed from your khata.",
 
                 {
                     parse_mode: "Markdown"
@@ -421,12 +455,12 @@ bot.action(
 
 
             console.log(
-                "Transaction deleted successfully ✅:",
-                transaction._id
+                "Customer notified about approval ✅"
             );
 
             console.log(
-                "Undo request approved successfully ✅"
+                "Transaction deleted successfully ✅:",
+                transaction._id
             );
 
             console.log("--------------------------------");
@@ -438,14 +472,13 @@ bot.action(
                 "Approve request failed ❌"
             );
 
-            console.error(error);
+            console.error(
+                error
+            );
+
 
             await ctx.answerCbQuery(
                 "Approval failed."
-            );
-
-            await ctx.reply(
-                "❌ Something went wrong while approving this request."
             );
 
         }
@@ -481,7 +514,7 @@ bot.action(
 
 
             // ==========================================
-            // Get Undo Request
+            // Find Undo Request
             // ==========================================
 
             const undoRequest =
@@ -493,7 +526,7 @@ bot.action(
             if (!undoRequest) {
 
                 await ctx.answerCbQuery(
-                    "Undo request not found."
+                    "Request not found."
                 );
 
                 return;
@@ -513,7 +546,7 @@ bot.action(
                 );
 
                 await ctx.reply(
-                    `⚠️ This request is already ${undoRequest.status}.`
+                    `⚠️ Request is already ${undoRequest.status}.`
                 );
 
                 return;
@@ -521,7 +554,47 @@ bot.action(
 
 
             // ==========================================
-            // Reject request
+            // Find Customer
+            // ==========================================
+
+            const customer =
+                await User.findById(
+                    undoRequest.customerId
+                );
+
+
+            if (!customer) {
+
+                await ctx.answerCbQuery(
+                    "Customer not found."
+                );
+
+                return;
+            }
+
+
+            // ==========================================
+            // Find Transaction
+            // ==========================================
+
+            const transaction =
+                await Transaction.findById(
+                    undoRequest.transactionId
+                );
+
+
+            if (!transaction) {
+
+                await ctx.answerCbQuery(
+                    "Transaction not found."
+                );
+
+                return;
+            }
+
+
+            // ==========================================
+            // Mark request REJECTED
             // ==========================================
 
             await rejectUndoRequest(
@@ -530,7 +603,7 @@ bot.action(
 
 
             // ==========================================
-            // Answer callback
+            // Owner response
             // ==========================================
 
             await ctx.answerCbQuery(
@@ -538,15 +611,15 @@ bot.action(
             );
 
 
-            // ==========================================
-            // Notify owner
-            // ==========================================
-
             await ctx.reply(
 
                 "❌ *Undo Request Rejected*\n\n" +
 
-                "The transaction was NOT deleted.\n\n" +
+                `👤 Customer: ${customer.name}\n` +
+
+                `🛒 Purchase: ₹${transaction.amount}\n\n` +
+
+                "The transaction was NOT deleted.\n" +
 
                 "📌 Request marked as REJECTED.",
 
@@ -556,6 +629,33 @@ bot.action(
 
             );
 
+
+            // ==========================================
+            // Notify Customer
+            // ==========================================
+
+            await bot.telegram.sendMessage(
+
+                customer.telegramUserId,
+
+                "❌ *Undo Request Rejected*\n\n" +
+
+                `🛒 Purchase: ₹${transaction.amount}\n\n` +
+
+                "The shop owner rejected your undo request.\n\n" +
+
+                "⚠️ The transaction remains in your khata.",
+
+                {
+                    parse_mode: "Markdown"
+                }
+
+            );
+
+
+            console.log(
+                "Customer notified about rejection ❌"
+            );
 
             console.log(
                 "Undo request rejected successfully ❌"
@@ -570,14 +670,13 @@ bot.action(
                 "Reject request failed ❌"
             );
 
-            console.error(error);
+            console.error(
+                error
+            );
+
 
             await ctx.answerCbQuery(
                 "Rejection failed."
-            );
-
-            await ctx.reply(
-                "❌ Something went wrong while rejecting this request."
             );
 
         }

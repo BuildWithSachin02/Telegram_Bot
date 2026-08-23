@@ -23,10 +23,59 @@ const {
     parseMessage
 } = require("./utils/messageParser");
 
+const Transaction = require("./models/Transaction");
+
 
 const bot = new Telegraf(
     process.env.CUSTOMER_BOT_TOKEN
 );
+
+
+// ==========================================
+// OWNER TELEGRAM ID
+// ==========================================
+
+const OWNER_TELEGRAM_ID =
+    process.env.OWNER_TELEGRAM_ID;
+
+
+// ==========================================
+// Helper: Notify Owner
+// ==========================================
+
+const notifyOwner = async (message) => {
+
+    try {
+
+        if (!OWNER_TELEGRAM_ID) {
+
+            console.log(
+                "OWNER_TELEGRAM_ID is not configured ❌"
+            );
+
+            return;
+        }
+
+        await bot.telegram.sendMessage(
+            OWNER_TELEGRAM_ID,
+            message
+        );
+
+        console.log(
+            "Owner notification sent successfully ✅"
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Owner notification failed ❌"
+        );
+
+        console.error(
+            error.message
+        );
+    }
+};
 
 
 // ==========================================
@@ -57,11 +106,12 @@ bot.start(async (ctx) => {
                 firstName
             );
 
-
             await ctx.reply(
-                "You are not registered yet. Please contact the shop owner."
-            );
 
+                "❌ You are not registered yet.\n\n" +
+                "Please contact the shop owner."
+
+            );
 
             return;
         }
@@ -74,7 +124,9 @@ bot.start(async (ctx) => {
 
 
         await ctx.reply(
+
             `Welcome ${firstName} 👋`
+
         );
 
 
@@ -90,9 +142,13 @@ bot.start(async (ctx) => {
 
 
         await ctx.reply(
+
             "Something went wrong. Please try again later."
+
         );
+
     }
+
 });
 
 
@@ -136,16 +192,12 @@ bot.command("total", async (ctx) => {
 
         if (!user) {
 
-            console.log(
-                "Customer not found ❌"
-            );
-
-
             await ctx.reply(
+
                 "❌ You are not registered yet.\n\n" +
                 "Please contact the shop owner."
-            );
 
+            );
 
             return;
         }
@@ -178,7 +230,7 @@ bot.command("total", async (ctx) => {
 
 
         // ==========================================
-        // Send total
+        // Send to customer
         // ==========================================
 
         await ctx.reply(
@@ -209,9 +261,13 @@ bot.command("total", async (ctx) => {
 
 
         await ctx.reply(
+
             "❌ Unable to calculate your total right now."
+
         );
+
     }
+
 });
 
 
@@ -255,16 +311,11 @@ bot.command("history", async (ctx) => {
 
         if (!user) {
 
-            console.log(
-                "Customer not found ❌"
-            );
-
-
             await ctx.reply(
-                "❌ You are not registered yet.\n\n" +
-                "Please contact the shop owner."
-            );
 
+                "❌ You are not registered yet."
+
+            );
 
             return;
         }
@@ -293,58 +344,31 @@ bot.command("history", async (ctx) => {
         );
 
 
-        // ==========================================
-        // Empty history
-        // ==========================================
-
-        if (
-            transactions.length === 0
-        ) {
+        if (transactions.length === 0) {
 
             await ctx.reply(
-                "📜 Your Khata History\n\n" +
-                "No transactions found."
+                "📭 No transactions found."
             );
-
 
             return;
         }
 
 
         // ==========================================
-        // Build history message
+        // Build message
         // ==========================================
 
         let historyMessage =
-            "📜 Your Recent Transactions\n\n";
+            "📜 *Your Recent Transactions*\n\n";
 
 
         transactions.forEach(
             (transaction, index) => {
 
-                let transactionIcon;
-
-                let transactionName;
-
-
-                if (
+                const type =
                     transaction.type === "PURCHASE"
-                ) {
-
-                    transactionIcon =
-                        "🛒";
-
-                    transactionName =
-                        "Purchase";
-
-                } else {
-
-                    transactionIcon =
-                        "💵";
-
-                    transactionName =
-                        "Payment";
-                }
+                        ? "🛒 Purchase"
+                        : "💵 Payment";
 
 
                 const date =
@@ -361,45 +385,21 @@ bot.command("history", async (ctx) => {
 
                 historyMessage +=
 
-                    `${index + 1}. ${transactionIcon} ${transactionName}\n` +
+                    `${index + 1}. ${type}\n` +
 
-                    `   💰 Amount: ₹${transaction.amount}\n` +
+                    `💰 Amount: ₹${transaction.amount}\n` +
 
-                    `   📅 ${date}\n\n`;
+                    `📅 ${date}\n\n`;
 
             }
         );
 
 
-        historyMessage +=
-            "--------------------\n";
-
-
-        // ==========================================
-        // Get current total
-        // ==========================================
-
-        const total =
-            await getCustomerTotal(
-                user._id
-            );
-
-
-        historyMessage +=
-
-            `🛒 Total Purchase: ₹${total.totalPurchase}\n` +
-
-            `💵 Total Payment: ₹${total.totalPayment}\n` +
-
-            `🔴 Outstanding: ₹${total.outstanding}`;
-
-
-        // ==========================================
-        // Send history
-        // ==========================================
-
         await ctx.reply(
-            historyMessage
+            historyMessage,
+            {
+                parse_mode: "Markdown"
+            }
         );
 
 
@@ -413,7 +413,7 @@ bot.command("history", async (ctx) => {
     } catch (error) {
 
         console.error(
-            "History retrieval failed ❌"
+            "History failed ❌"
         );
 
         console.error(
@@ -422,9 +422,11 @@ bot.command("history", async (ctx) => {
 
 
         await ctx.reply(
-            "❌ Unable to get your transaction history right now."
+            "❌ Unable to load transaction history."
         );
+
     }
+
 });
 
 
@@ -457,7 +459,7 @@ bot.command("undo", async (ctx) => {
 
 
         // ==========================================
-        // 1. Find customer
+        // Find customer
         // ==========================================
 
         const user =
@@ -468,19 +470,11 @@ bot.command("undo", async (ctx) => {
 
         if (!user) {
 
-            console.log(
-                "Customer not found ❌"
-            );
-
-
             await ctx.reply(
 
-                "❌ You are not registered yet.\n\n" +
-
-                "Please contact the shop owner."
+                "❌ You are not registered yet."
 
             );
-
 
             return;
         }
@@ -493,85 +487,70 @@ bot.command("undo", async (ctx) => {
 
 
         // ==========================================
-        // 2. Get latest transaction
+        // Find latest transaction
         // ==========================================
 
-        const transactions =
-            await getCustomerHistory(
-                user._id,
-                1
-            );
+        const latest =
+            await Transaction.findOne({
+                customerId: user._id
+            })
+                .sort({
+                    createdAt: -1
+                });
 
 
-        // ==========================================
-        // 3. No transaction
-        // ==========================================
-
-        if (
-            transactions.length === 0
-        ) {
-
-            console.log(
-                "No transaction found ❌"
-            );
-
+        if (!latest) {
 
             await ctx.reply(
-                "ℹ️ You don't have any transactions to undo."
+                "❌ You don't have any transactions to undo."
             );
-
 
             return;
         }
 
 
-        const latestTransaction =
-            transactions[0];
+        // ==========================================
+        // Payment cannot be undone
+        // ==========================================
+
+        if (
+            latest.type === "PAYMENT"
+        ) {
+
+            console.log(
+                "Undo blocked because latest transaction is PAYMENT ❌"
+            );
+
+
+            await ctx.reply(
+
+                "⚠️ Your latest transaction is a payment.\n\n" +
+
+                `💵 Payment: ₹${latest.amount}\n\n` +
+
+                "❌ Payment was NOT deleted.\n\n" +
+
+                "ℹ️ /undo only requests removal of the latest purchase."
+
+            );
+
+            return;
+        }
 
 
         console.log(
             "Latest transaction:",
-            latestTransaction.type
+            latest.type
         );
 
         console.log(
             "Latest amount:",
-            latestTransaction.amount
+            latest.amount
         );
 
 
         // ==========================================
-        // 4. Payment protection
-        // ==========================================
-
-        if (
-            latestTransaction.type === "PAYMENT"
-        ) {
-
-            console.log(
-                "Undo blocked because latest transaction is a PAYMENT ❌"
-            );
-
-
-            await ctx.reply(
-
-                `⚠️ Your latest transaction is a payment.\n\n` +
-
-                `💵 Payment: ₹${latestTransaction.amount}\n\n` +
-
-                `❌ Payment cannot be removed using /undo.\n\n` +
-
-                `ℹ️ /undo can only request removal of your latest purchase.`
-
-            );
-
-
-            return;
-        }
-
-
-        // ==========================================
-        // 5. Check existing pending request
+        // Check existing pending request
         // ==========================================
 
         const existingRequest =
@@ -581,36 +560,29 @@ bot.command("undo", async (ctx) => {
                     user._id,
 
                 transactionId:
-                    latestTransaction._id
+                    latest._id
 
             });
 
 
         if (existingRequest) {
 
-            console.log(
-                "Undo request already pending ⚠️:",
-                existingRequest._id
-            );
-
-
             await ctx.reply(
 
-                `⏳ An undo request for ₹${latestTransaction.amount} ` +
+                "⏳ An undo request for this transaction is already pending.\n\n" +
 
-                `is already waiting for shop owner approval.\n\n` +
+                `🛒 Purchase: ₹${latest.amount}\n\n` +
 
-                `Please wait for the owner to review it.`
+                "Please wait for the shop owner to review it."
 
             );
-
 
             return;
         }
 
 
         // ==========================================
-        // 6. Create Undo Request
+        // Create Undo Request
         // ==========================================
 
         const undoRequest =
@@ -620,7 +592,7 @@ bot.command("undo", async (ctx) => {
                     user._id,
 
                 transactionId:
-                    latestTransaction._id
+                    latest._id
 
             });
 
@@ -631,43 +603,54 @@ bot.command("undo", async (ctx) => {
         );
 
 
-        console.log(
-            "Transaction:",
-            latestTransaction._id
-        );
-
-        console.log(
-            "Amount:",
-            latestTransaction.amount
-        );
-
-        console.log(
-            "Status:",
-            undoRequest.status
-        );
-
-
         // ==========================================
-        // 7. Tell customer to wait
+        // Customer notification
         // ==========================================
 
         await ctx.reply(
 
-            `⏳ Undo request created.\n\n` +
+            "⏳ *Undo request created*\n\n" +
 
-            `🛒 Purchase: ₹${latestTransaction.amount}\n\n` +
+            `🛒 Purchase: ₹${latest.amount}\n\n` +
 
-            `📨 Your request has been sent for shop owner approval.\n\n` +
+            "📨 Your request has been sent to the shop owner.\n\n" +
 
-            `Please wait for the owner to review it.\n\n` +
+            "Please wait for the owner to review it.\n\n" +
 
-            `❗ The transaction has NOT been deleted yet.`
+            "⚠️ The transaction has NOT been deleted yet.",
+
+            {
+                parse_mode: "Markdown"
+            }
+
+        );
+
+
+        // ==========================================
+        // Notify Owner
+        // ==========================================
+
+        await notifyOwner(
+
+            "⚠️ *New Undo Request*\n\n" +
+
+            `👤 Customer: ${user.name}\n` +
+
+            `📱 Telegram ID: ${telegramUserId}\n\n` +
+
+            `🛒 Purchase: ₹${latest.amount}\n` +
+
+            `🆔 Transaction ID: ${latest._id}\n\n` +
+
+            "The customer wants to remove this purchase.\n\n" +
+
+            "Please open the Owner Bot and use /requests to review it.",
 
         );
 
 
         console.log(
-            "Undo request sent successfully ✅"
+            "Undo request notification sent to owner ✅"
         );
 
         console.log("--------------------------------");
@@ -680,30 +663,26 @@ bot.command("undo", async (ctx) => {
         );
 
         console.error(
-            error.message
+            error
         );
 
 
         await ctx.reply(
-
-            "❌ Unable to create your undo request right now."
-
+            "❌ Something went wrong while creating the undo request."
         );
+
     }
+
 });
 
 
 // ==========================================
-// Normal text messages
+// Normal financial text messages
 // ==========================================
 
 bot.on("text", async (ctx) => {
 
     try {
-
-        // ==========================================
-        // 1. Telegram user information
-        // ==========================================
 
         const telegramUserId =
             ctx.from.id;
@@ -742,7 +721,7 @@ bot.on("text", async (ctx) => {
 
 
         // ==========================================
-        // 2. Find customer
+        // Find customer
         // ==========================================
 
         const user =
@@ -761,11 +740,9 @@ bot.on("text", async (ctx) => {
             await ctx.reply(
 
                 "❌ You are not registered yet.\n\n" +
-
                 "Please contact the shop owner."
 
             );
-
 
             return;
         }
@@ -778,7 +755,7 @@ bot.on("text", async (ctx) => {
 
 
         // ==========================================
-        // 3. Parse message
+        // Parse message
         // ==========================================
 
         const parsed =
@@ -791,33 +768,24 @@ bot.on("text", async (ctx) => {
         );
 
 
-        // ==========================================
-        // 4. Check parser result
-        // ==========================================
-
-        if (
-            !parsed.success
-        ) {
+        if (!parsed.success) {
 
             await ctx.reply(
                 `❌ ${parsed.error}`
             );
-
 
             return;
         }
 
 
         // ==========================================
-        // 5. Decide transaction type
+        // Decide transaction type
         // ==========================================
 
         let transactionType;
 
 
-        if (
-            parsed.isPayment
-        ) {
+        if (parsed.isPayment) {
 
             transactionType =
                 "PAYMENT";
@@ -830,7 +798,7 @@ bot.on("text", async (ctx) => {
 
 
         // ==========================================
-        // 6. Save transaction
+        // Create transaction
         // ==========================================
 
         const transaction =
@@ -861,7 +829,7 @@ bot.on("text", async (ctx) => {
 
 
         // ==========================================
-        // 7. Reply
+        // Customer response
         // ==========================================
 
         if (
@@ -870,9 +838,13 @@ bot.on("text", async (ctx) => {
 
             await ctx.reply(
 
-                `✅ Purchase recorded!\n\n` +
+                "✅ *Purchase recorded!*\n\n" +
 
-                `💰 Amount: ₹${parsed.amount}`
+                `💰 Amount: ₹${parsed.amount}`,
+
+                {
+                    parse_mode: "Markdown"
+                }
 
             );
 
@@ -880,12 +852,57 @@ bot.on("text", async (ctx) => {
 
             await ctx.reply(
 
-                `✅ Payment recorded!\n\n` +
+                "✅ *Payment recorded!*\n\n" +
 
-                `💰 Amount: ₹${parsed.amount}`
+                `💰 Amount: ₹${parsed.amount}`,
+
+                {
+                    parse_mode: "Markdown"
+                }
 
             );
+
         }
+
+
+        // ==========================================
+        // Notify Owner
+        // ==========================================
+
+        const ownerType =
+            transactionType === "PURCHASE"
+                ? "🛒 Purchase"
+                : "💵 Payment";
+
+
+        await notifyOwner(
+
+            "🔔 *New Customer Transaction*\n\n" +
+
+            `👤 Customer: ${user.name}\n` +
+
+            `📱 Telegram ID: ${telegramUserId}\n\n` +
+
+            `${ownerType}\n` +
+
+            `💰 Amount: ₹${parsed.amount}\n\n` +
+
+            `📅 ${new Date(
+                transaction.createdAt
+            ).toLocaleString(
+                "en-IN",
+                {
+                    dateStyle: "medium",
+                    timeStyle: "short"
+                }
+            )}`
+
+        );
+
+
+        console.log(
+            "Owner notified about transaction ✅"
+        );
 
 
         console.log("--------------------------------");
@@ -907,19 +924,21 @@ bot.on("text", async (ctx) => {
             "❌ Something went wrong while saving your transaction."
 
         );
+
     }
+
 });
 
 
 // ==========================================
-// Start MongoDB
+// Connect MongoDB
 // ==========================================
 
 connectDB();
 
 
 // ==========================================
-// Start Telegram Bot
+// Start Customer Bot
 // ==========================================
 
 bot.launch();
@@ -931,7 +950,7 @@ console.log(
 
 
 // ==========================================
-// Graceful shutdown
+// Graceful Shutdown
 // ==========================================
 
 process.once(
@@ -939,12 +958,10 @@ process.once(
     () => {
 
         console.log(
-            "Stopping bot..."
+            "Stopping Customer Bot..."
         );
 
-        bot.stop(
-            "SIGINT"
-        );
+        bot.stop("SIGINT");
 
     }
 );
@@ -955,12 +972,10 @@ process.once(
     () => {
 
         console.log(
-            "Stopping bot..."
+            "Stopping Customer Bot..."
         );
 
-        bot.stop(
-            "SIGTERM"
-        );
+        bot.stop("SIGTERM");
 
     }
 );

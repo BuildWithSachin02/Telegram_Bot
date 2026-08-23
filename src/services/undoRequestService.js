@@ -86,9 +86,12 @@ const approveUndoRequest = async (
 ) => {
 
     const undoRequest =
-        await UndoRequest.findByIdAndUpdate(
+        await UndoRequest.findOneAndUpdate(
 
-            undoRequestId,
+            {
+                _id: undoRequestId,
+                status: "PENDING"
+            },
 
             {
                 status: "APPROVED",
@@ -96,7 +99,7 @@ const approveUndoRequest = async (
             },
 
             {
-                new: true
+                returnDocument: "after"
             }
         );
 
@@ -113,9 +116,12 @@ const rejectUndoRequest = async (
 ) => {
 
     const undoRequest =
-        await UndoRequest.findByIdAndUpdate(
+        await UndoRequest.findOneAndUpdate(
 
-            undoRequestId,
+            {
+                _id: undoRequestId,
+                status: "PENDING"
+            },
 
             {
                 status: "REJECTED",
@@ -123,7 +129,7 @@ const rejectUndoRequest = async (
             },
 
             {
-                new: true
+                returnDocument: "after"
             }
         );
 
