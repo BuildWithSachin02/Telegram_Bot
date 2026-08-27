@@ -9,7 +9,36 @@ const Transaction = require("../models/Transaction");
 
 
 // ==========================================
+// Environment Validation
+// ==========================================
+
+if (!process.env.OWNER_BOT_TOKEN) {
+
+    throw new Error(
+        "OWNER_BOT_TOKEN is missing in .env"
+    );
+}
+
+
+if (!process.env.OWNER_TELEGRAM_ID) {
+
+    throw new Error(
+        "OWNER_TELEGRAM_ID is missing in .env"
+    );
+}
+
+
+// ==========================================
 // Owner Bot Telegram Client
+// ==========================================
+//
+// IMPORTANT:
+//
+// This client uses OWNER_BOT_TOKEN.
+//
+// Therefore notifications sent through this
+// client are sent FROM the Owner Bot.
+//
 // ==========================================
 
 const ownerBot = new Telegraf(
@@ -50,6 +79,86 @@ const sendOwnerMessage = async (
 
         extra
 
+    );
+};
+
+
+// ==========================================
+// Notify Owner About New Customer
+// ==========================================
+//
+// Called AFTER a new CUSTOMER document has
+// successfully been created.
+//
+// The message is sent FROM the Owner Bot.
+//
+// ==========================================
+
+const notifyOwnerAboutNewCustomer = async (
+    customer
+) => {
+
+    if (!customer) {
+
+        throw new Error(
+            "Customer data is missing for new customer notification."
+        );
+    }
+
+
+    const customerName =
+        customer.name ||
+        "Unknown Customer";
+
+
+    const username =
+        customer.username
+            ? `@${customer.username}`
+            : "No username";
+
+
+    const telegramUserId =
+        customer.telegramUserId ||
+        "Unknown";
+
+
+    const createdDate =
+        customer.createdAt
+            ? new Date(
+                customer.createdAt
+            ).toLocaleString(
+                "en-IN",
+                {
+                    dateStyle: "medium",
+                    timeStyle: "short"
+                }
+            )
+            : "Unknown";
+
+
+    await sendOwnerMessage(
+
+        "👤 *NEW CUSTOMER ADDED*\n\n" +
+
+        `👤 *Name:* ${customerName}\n` +
+
+        `📱 *Username:* ${username}\n` +
+
+        `🆔 *Telegram ID:* ${telegramUserId}\n\n` +
+
+        `📅 *Joined:* ${createdDate}\n\n` +
+
+        "✅ Customer account was created automatically from `/start`.",
+
+        {
+            parse_mode: "Markdown"
+        }
+
+    );
+
+
+    console.log(
+        "Owner new customer notification sent successfully ✅"
     );
 };
 
@@ -318,7 +427,7 @@ const notifyOwnerAboutPaymentRequest = async (
 
         `💵 *Claimed Payment:* ₹${paymentRequest.amount}\n\n` +
 
-        `📝 *Customer Message:*\n` +
+        "📝 *Customer Message:*\n" +
 
         `"${paymentRequest.message}"\n\n` +
 
@@ -382,6 +491,8 @@ const notifyOwnerAboutPaymentRequest = async (
 module.exports = {
 
     sendOwnerMessage,
+
+    notifyOwnerAboutNewCustomer,
 
     notifyOwnerAboutUndoRequest,
 
