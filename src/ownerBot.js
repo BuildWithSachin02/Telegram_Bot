@@ -37,12 +37,32 @@ const {
 
 
 // ==========================================
+// OWNER REPORT SERVICE
+// ==========================================
+
+const {
+    getUnpaidCustomers,
+    getPaidCustomers,
+    getCreditCustomers,
+    getShopSummary,
+    getCustomerReportByName
+} = require("./services/ownerReportService");
+
+
+// ==========================================
 // MODELS
 // ==========================================
 
 const Transaction = require("./models/Transaction");
 const User = require("./models/User");
 
+// ==========================================
+// OWNER CLEANUP COMMANDS
+// ==========================================
+
+const {
+    registerOwnerCleanupCommands
+} = require("./ownerCleanupCommands");
 
 // ==========================================
 // ENVIRONMENT VARIABLES
@@ -247,16 +267,20 @@ ownerBot.start(
 
                 "👋 *Welcome to SR Khata Owner Bot*\n\n" +
 
-                "Available commands:\n\n" +
+                "📊 *Reports*\n\n" +
 
-                "⚠️ */undo*\n" +
-                "View pending purchase undo requests.\n\n" +
+                "*/report* - Unpaid customers\n" +
+                "*/paid* - Settled customers\n" +
+                "*/credit* - Customer credit\n" +
+                "*/summary* - Shop summary\n" +
+                "*/customer <name>* - Customer details\n\n" +
 
-                "💰 */payments*\n" +
-                "View pending customer payment requests.\n\n" +
+                "⚠️ *Requests*\n\n" +
 
-                "ℹ️ */help*\n" +
-                "Show all commands.",
+                "*/undo* - Pending undo requests\n" +
+                "*/payments* - Pending payment requests\n\n" +
+
+                "ℹ️ */help* - Show all commands.",
 
                 {
                     parse_mode: "Markdown"
@@ -292,16 +316,20 @@ ownerBot.command(
 
                 "👨‍💼 *SR Khata Owner Bot*\n\n" +
 
-                "Available commands:\n\n" +
+                "📊 *Reports*\n\n" +
 
-                "⚠️ */undo*\n" +
-                "View pending purchase undo requests.\n\n" +
+                "*/report* - Unpaid customers\n" +
+                "*/paid* - Settled customers\n" +
+                "*/credit* - Customer credit\n" +
+                "*/summary* - Shop summary\n" +
+                "*/customer <name>* - Customer details\n\n" +
 
-                "💰 */payments*\n" +
-                "View pending payment requests.\n\n" +
+                "⚠️ *Requests*\n\n" +
 
-                "ℹ️ */help*\n" +
-                "Show this help message.",
+                "*/undo* - Pending undo requests\n" +
+                "*/payments* - Pending payment requests\n\n" +
+
+                "ℹ️ */help* - Show this help message.",
 
                 {
                     parse_mode: "Markdown"
@@ -319,6 +347,389 @@ ownerBot.command(
 
         }
 
+    }
+);
+
+
+// ==========================================
+// /REPORT
+// Show all unpaid customers
+// ==========================================
+
+ownerBot.command(
+    "report",
+    async (ctx) => {
+
+        try {
+
+            console.log("--------------------------------");
+            console.log("Owner /report requested");
+
+            const customers =
+                await getUnpaidCustomers();
+
+            if (customers.length === 0) {
+
+                await ctx.reply(
+                    "✅ *No Unpaid Customers*\n\n" +
+                    "All customers are currently settled.",
+                    {
+                        parse_mode: "Markdown"
+                    }
+                );
+
+                console.log("Unpaid customers: 0");
+                console.log("--------------------------------");
+                return;
+            }
+
+            let message =
+                "🔴 *UNPAID CUSTOMERS*\n\n";
+
+            let totalOutstanding = 0;
+
+            customers.forEach((customer, index) => {
+
+                const outstanding =
+                    Number(customer.outstanding);
+
+                totalOutstanding += outstanding;
+
+                message +=
+                    `${index + 1}. ${customer.name || "Unknown"} — ₹${outstanding}\n`;
+            });
+
+            message +=
+                "\n────────────────\n" +
+                `👥 *Unpaid:* ${customers.length}\n` +
+                `💰 *Total Due:* ₹${totalOutstanding}`;
+
+            await ctx.reply(
+                message,
+                {
+                    parse_mode: "Markdown"
+                }
+            );
+
+            console.log("Unpaid customers:", customers.length);
+            console.log("Total due:", totalOutstanding);
+            console.log("--------------------------------");
+
+        } catch (error) {
+
+            console.error("Owner /report failed ❌");
+            console.error(error);
+
+            await ctx.reply(
+                "❌ Unable to generate the unpaid customer report."
+            );
+        }
+    }
+);
+
+
+// ==========================================
+// /PAID
+// Show settled customers
+// ==========================================
+
+ownerBot.command(
+    "paid",
+    async (ctx) => {
+
+        try {
+
+            console.log("--------------------------------");
+            console.log("Owner /paid requested");
+
+            const customers =
+                await getPaidCustomers();
+
+            if (customers.length === 0) {
+
+                await ctx.reply(
+                    "ℹ️ *No Settled Customers*\n\n" +
+                    "No customer currently has a ₹0 balance.",
+                    {
+                        parse_mode: "Markdown"
+                    }
+                );
+
+                console.log("Paid customers: 0");
+                console.log("--------------------------------");
+                return;
+            }
+
+            let message =
+                "🟢 *PAID CUSTOMERS*\n\n";
+
+            customers.forEach((customer, index) => {
+
+                message +=
+                    `${index + 1}. ${customer.name || "Unknown"}\n`;
+            });
+
+            message +=
+                "\n────────────────\n" +
+                `👥 *Paid:* ${customers.length}`;
+
+            await ctx.reply(
+                message,
+                {
+                    parse_mode: "Markdown"
+                }
+            );
+
+            console.log("Paid customers:", customers.length);
+            console.log("--------------------------------");
+
+        } catch (error) {
+
+            console.error("Owner /paid failed ❌");
+            console.error(error);
+
+            await ctx.reply(
+                "❌ Unable to generate the paid customer report."
+            );
+        }
+    }
+);
+
+
+// ==========================================
+// /CREDIT
+// Show customers with credit
+// ==========================================
+
+ownerBot.command(
+    "credit",
+    async (ctx) => {
+
+        try {
+
+            console.log("--------------------------------");
+            console.log("Owner /credit requested");
+
+            const customers =
+                await getCreditCustomers();
+
+            if (customers.length === 0) {
+
+                await ctx.reply(
+                    "ℹ️ *No Customer Credit*\n\n" +
+                    "No customer currently has an overpayment.",
+                    {
+                        parse_mode: "Markdown"
+                    }
+                );
+
+                console.log("Credit customers: 0");
+                console.log("--------------------------------");
+                return;
+            }
+
+            let message =
+                "🔵 *CUSTOMER CREDIT*\n\n";
+
+            let totalCredit = 0;
+
+            customers.forEach((customer, index) => {
+
+                const credit =
+                    Math.abs(Number(customer.outstanding));
+
+                totalCredit += credit;
+
+                message +=
+                    `${index + 1}. ${customer.name || "Unknown"} — ₹${credit}\n`;
+            });
+
+            message +=
+                "\n────────────────\n" +
+                `👥 *Credit:* ${customers.length}\n` +
+                `💰 *Total Credit:* ₹${totalCredit}`;
+
+            await ctx.reply(
+                message,
+                {
+                    parse_mode: "Markdown"
+                }
+            );
+
+            console.log("Credit customers:", customers.length);
+            console.log("Total credit:", totalCredit);
+            console.log("--------------------------------");
+
+        } catch (error) {
+
+            console.error("Owner /credit failed ❌");
+            console.error(error);
+
+            await ctx.reply(
+                "❌ Unable to generate the credit customer report."
+            );
+        }
+    }
+);
+
+
+// ==========================================
+// /SUMMARY
+// Show shop summary
+// ==========================================
+
+ownerBot.command(
+    "summary",
+    async (ctx) => {
+
+        try {
+
+            console.log("--------------------------------");
+            console.log("Owner /summary requested");
+
+            const summary =
+                await getShopSummary();
+
+            const message =
+                "📊 *SHOP SUMMARY*\n\n" +
+                `👥 Customers: ${summary.totalCustomers}\n\n` +
+                `🔴 Unpaid: ${summary.unpaidCustomers}\n` +
+                `🟢 Paid: ${summary.paidCustomers}\n` +
+                `🔵 Credit: ${summary.creditCustomers}\n\n` +
+                `🛒 Sales: ₹${summary.totalPurchase}\n` +
+                `💵 Payments: ₹${summary.totalPayment}\n\n` +
+                `💰 Outstanding: ₹${summary.totalOutstanding}`;
+
+            await ctx.reply(
+                message,
+                {
+                    parse_mode: "Markdown"
+                }
+            );
+
+            console.log("Total customers:", summary.totalCustomers);
+            console.log("Unpaid customers:", summary.unpaidCustomers);
+            console.log("Paid customers:", summary.paidCustomers);
+            console.log("Credit customers:", summary.creditCustomers);
+            console.log("Total purchase:", summary.totalPurchase);
+            console.log("Total payment:", summary.totalPayment);
+            console.log("Total outstanding:", summary.totalOutstanding);
+            console.log("--------------------------------");
+
+        } catch (error) {
+
+            console.error("Owner /summary failed ❌");
+            console.error(error);
+
+            await ctx.reply(
+                "❌ Unable to generate the shop summary."
+            );
+        }
+    }
+);
+
+
+// ==========================================
+// /CUSTOMER <NAME>
+// Show one customer's report
+// ==========================================
+
+ownerBot.command(
+    "customer",
+    async (ctx) => {
+
+        try {
+
+            console.log("--------------------------------");
+            console.log("Owner /customer requested");
+
+            const commandText =
+                ctx.message?.text || "";
+
+            const customerName =
+                commandText
+                    .replace(/^\/customer(?:@\w+)?\s*/i, "")
+                    .trim();
+
+            if (!customerName) {
+
+                await ctx.reply(
+                    "ℹ️ *Usage*\n\n" +
+                    "`/customer Sachin`",
+                    {
+                        parse_mode: "Markdown"
+                    }
+                );
+
+                return;
+            }
+
+            const customer =
+                await getCustomerReportByName(
+                    customerName
+                );
+
+            if (!customer) {
+
+                await ctx.reply(
+                    `❌ Customer *${customerName}* not found.`,
+                    {
+                        parse_mode: "Markdown"
+                    }
+                );
+
+                return;
+            }
+
+            let status;
+
+            if (customer.outstanding > 0) {
+
+                status =
+                    `🔴 Due: ₹${customer.outstanding}`;
+
+            } else if (customer.outstanding === 0) {
+
+                status =
+                    "🟢 Paid: ₹0";
+
+            } else {
+
+                status =
+                    `🔵 Credit: ₹${Math.abs(customer.outstanding)}`;
+            }
+
+            const message =
+                "👤 *CUSTOMER REPORT*\n\n" +
+                `Name: ${customer.name}\n` +
+                `Telegram ID: ${customer.telegramUserId || "Unknown"}\n\n` +
+                `🛒 Purchase: ₹${customer.totalPurchase}\n` +
+                `💵 Payment: ₹${customer.totalPayment}\n\n` +
+                status;
+
+            await ctx.reply(
+                message,
+                {
+                    parse_mode: "Markdown"
+                }
+            );
+
+            console.log("Customer:", customer.name);
+            console.log("Telegram ID:", customer.telegramUserId);
+            console.log("Purchase:", customer.totalPurchase);
+            console.log("Payment:", customer.totalPayment);
+            console.log("Outstanding:", customer.outstanding);
+            console.log("--------------------------------");
+
+        } catch (error) {
+
+            console.error("Owner /customer failed ❌");
+            console.error(error);
+
+            await ctx.reply(
+                "❌ Unable to generate the customer report."
+            );
+        }
     }
 );
 
@@ -1020,9 +1431,7 @@ ownerBot.action(
 
                 return;
             }
-
-
-            // ==========================================
+                        // ==========================================
             // REMOVE BUTTONS
             // ==========================================
 
@@ -1315,7 +1724,7 @@ ownerBot.action(
 
                 `👤 *Customer:* ${customer.name || "Unknown"}\n` +
 
-                `📌 *Request:* REJECTED\n\n` +
+                "📌 *Request:* REJECTED\n\n" +
 
                 "The purchase remains in the customer's khata.\n\n" +
 
@@ -1715,9 +2124,7 @@ ownerBot.action(
 
                 return;
             }
-
-
-            // ==========================================
+                        // ==========================================
             // VALIDATION #2
             // PAYMENT > OUTSTANDING
             // ==========================================
@@ -2327,6 +2734,14 @@ ownerBot.action(
 
     }
 );
+// ==========================================
+// OWNER DATA CLEANUP COMMANDS
+// ==========================================
+
+registerOwnerCleanupCommands(
+    ownerBot,
+    OWNER_TELEGRAM_ID
+);
 
 
 // ==========================================
@@ -2339,33 +2754,26 @@ const startOwnerBot = async () => {
 
         await connectDB();
 
-
         console.log(
             "MongoDB Connected Successfully ✅"
         );
 
-
         console.log("--------------------------------");
 
-
         await ownerBot.launch();
-
 
         console.log(
             "Owner Bot is running..."
         );
-
 
         console.log(
             "Owner Telegram ID:",
             OWNER_TELEGRAM_ID
         );
 
-
         console.log(
             "Customer notification bot configured ✅"
         );
-
 
         console.log("--------------------------------");
 
