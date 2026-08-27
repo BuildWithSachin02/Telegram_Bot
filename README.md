@@ -1,129 +1,300 @@
-SR Khata Ledger Bot
+# SR Khata Ledger Bot
 
-A Telegram-based customer and owner ledger system for recording purchases, verifying customer payments, handling undo requests, and providing owner-side reports.
+> A Telegram-based digital khata and payment-verification system for shops and small businesses.
 
-Overview
+SR Khata Ledger Bot uses two Telegram bots to manage customer purchases, payment verification, purchase corrections, owner reporting, and ledger cleanup while keeping customer accounts separate from transactional history.
 
-The project uses two Telegram bots:
+---
 
-Customer Bot — customers record purchases, request payment verification, check totals/history, and request an undo.
+## Table of Contents
 
-Owner Bot — the shop owner reviews payment and undo requests, approves or rejects them, receives notifications, views reports, and can clear ledger data when intentionally required.
+- [Overview](#overview)
+- [Core Workflow](#core-workflow)
+- [Customer Bot](#customer-bot)
+- [Owner Bot](#owner-bot)
+- [Request Lifecycle](#request-lifecycle)
+- [Ledger Rules](#ledger-rules)
+- [Safety and Validation](#safety-and-validation)
+- [Owner Reports](#owner-reports)
+- [Ledger Cleanup](#ledger-cleanup)
+- [Project Architecture](#project-architecture)
+- [Database Models](#database-models)
+- [Services](#services)
+- [Notifications](#notifications)
+- [Environment Configuration](#environment-configuration)
+- [Installation](#installation)
+- [Running the Bots](#running-the-bots)
+- [Testing](#testing)
+- [Security](#security)
+- [Production Hardening](#production-hardening)
+- [Development Guidelines](#development-guidelines)
+- [Future Improvements](#future-improvements)
+- [License](#license)
+- [Author](#author)
 
+---
+
+## Overview
+
+The system is split into two Telegram bots:
+
+| Component | Responsibility |
+|---|---|
+| **Customer Bot** | Records purchases, submits payment claims, requests undo operations, and lets customers view their khata |
+| **Owner Bot** | Reviews payment/undo requests, approves or rejects them, receives notifications, generates reports, and manages ledger cleanup |
+
+The architecture separates:
+
+- actual ledger transactions
+- pending payment verification requests
+- pending undo requests
+- customer identity/account data
+- owner reporting
+- destructive ledger cleanup
+
+This separation keeps customer records available even when historical ledger data is intentionally cleared.
+
+---
+
+# Core Workflow
+
+## Purchase
+
+```text
+Customer
+   │
+   │  "20 cig"
+   ▼
 Customer Bot
+   │
+   ▼
+PURCHASE Transaction
+   │
+   ▼
+Customer Ledger Updated
+   │
+   ▼
+Owner Notified
+```
 
-Purchase
+## Payment Verification
 
-Customers can send a message such as:
+Customer-submitted payment messages do **not** directly alter the ledger.
 
+```text
+Customer
+   │
+   │  "-20 cash diya"
+   ▼
+PaymentRequest
+   │
+   ▼
+PENDING
+   │
+   ▼
+Owner Verification
+   │
+   ├───────────────┐
+   │               │
+ APPROVE          REJECT
+   │               │
+   ▼               ▼
+PAYMENT         No PAYMENT
+created         transaction
+   │
+   ▼
+Ledger Updated
+   │
+   ▼
+Customer Notified
+```
+
+## Undo
+
+```text
+Customer
+   │
+   │  /undo
+   ▼
+UndoRequest
+   │
+   ▼
+PENDING
+   │
+   ▼
+Owner Verification
+   │
+   ├───────────────┐
+   │               │
+ APPROVE          REJECT
+   │               │
+   ▼               ▼
+Remove           Purchase
+purchase         remains
+   │
+   ▼
+Customer Notified
+```
+
+---
+
+# Customer Bot
+
+## Purchase Entry
+
+A customer can send a normal purchase message such as:
+
+```text
 20 cig
+```
 
-The bot parses the amount and creates a PURCHASE transaction.
+The bot parses the amount and creates a:
 
-Payment Verification
+```text
+PURCHASE
+```
 
-A customer can send:
+transaction.
 
+The purchase immediately affects the customer's khata.
+
+---
+
+## Payment Request
+
+A customer can submit a payment claim such as:
+
+```text
 -20 cash diya
+```
 
-This creates a PaymentRequest with:
+The bot creates a:
 
+```text
+PaymentRequest
 status = PENDING
+```
 
-The ledger is not changed until the owner approves the request.
+The ledger remains unchanged until the owner verifies the request.
 
-On approval:
+### Approved payment
 
-PaymentRequest
-    PENDING
-       ↓
-    APPROVED
-       ↓
+```text
+PENDING
+   ↓
+APPROVED
+   ↓
 PAYMENT transaction
-       ↓
-Ledger updated
+```
 
-On rejection:
+### Rejected payment
 
-PaymentRequest
-    PENDING
-       ↓
-    REJECTED
+```text
+PENDING
+   ↓
+REJECTED
+```
 
-No payment transaction is created.
+No `PAYMENT` transaction is created when a request is rejected.
 
-Undo
+---
 
-The customer can request an undo with:
+## Undo Request
 
+The customer can request an undo using:
+
+```text
 /undo
+```
 
-The system creates an UndoRequest for the customer's latest purchase.
+The system creates an `UndoRequest` for the customer's latest purchase.
 
-The owner can then approve or reject the request.
+The owner then decides whether to approve or reject it.
 
-Customer Totals
+---
 
+## Customer Commands
+
+```text
 /total
-
-The current calculation is:
-
-Outstanding = Total Purchase - Total Payment
-
-Customer History
-
 /history
+/undo
+```
 
-Shows recent ledger transactions.
+### `/total`
 
-Customer Notifications
+Shows the current khata totals.
 
-Customers can receive Telegram notifications when the owner:
+The balance calculation is:
 
-approves a payment
+```text
+Outstanding = Total Purchase - Total Payment
+```
 
-rejects a payment
+### `/history`
 
-approves an undo
+Shows recent transactions.
 
-rejects an undo
+### `/undo`
 
-blocks an invalid payment approval
+Requests removal of the latest eligible purchase.
 
-Owner Bot
+---
+
+# Owner Bot
 
 The Owner Bot is restricted to the configured owner Telegram ID.
 
-Basic commands
+## General Commands
 
+```text
 /start
 /help
+```
 
-Request commands
+## Request Management
 
+```text
 /undo
 /payments
+```
 
-/undo shows pending purchase undo requests.
+### `/undo`
 
-/payments shows pending payment verification requests.
+Displays pending purchase undo requests.
 
-Requests provide approve/reject buttons.
+The owner receives:
 
-Reporting commands
+```text
+[✅ Approve Undo] [❌ Reject Undo]
+```
 
-/report
-/paid
-/credit
-/summary
-/customer <name>
+### `/payments`
 
-/report
+Displays pending payment verification requests.
 
-Shows customers whose outstanding balance is greater than zero.
+The owner receives:
 
-Example:
+```text
+[✅ Approve Payment]
+[❌ Reject Payment]
+```
 
+---
+
+# Owner Reports
+
+Reporting logic is implemented in:
+
+```text
+src/services/ownerReportService.js
+```
+
+## `/report`
+
+Shows customers who currently owe money.
+
+```text
 🔴 UNPAID CUSTOMERS
 
 1. Sachin — ₹500
@@ -132,13 +303,21 @@ Example:
 ────────────────
 👥 Unpaid: 2
 💰 Total Due: ₹750
+```
 
-/paid
+Rule:
 
-Shows customers with an outstanding balance of exactly zero.
+```text
+Outstanding > 0
+```
 
-Example:
+---
 
+## `/paid`
+
+Shows customers whose current outstanding balance is exactly zero.
+
+```text
 🟢 PAID CUSTOMERS
 
 1. Priya
@@ -146,13 +325,21 @@ Example:
 
 ────────────────
 👥 Paid: 2
+```
 
-/credit
+Rule:
+
+```text
+Outstanding = 0
+```
+
+---
+
+## `/credit`
 
 Shows customers whose payment is greater than their purchases.
 
-Example:
-
+```text
 🔵 CUSTOMER CREDIT
 
 1. Neha — ₹20
@@ -160,13 +347,21 @@ Example:
 ────────────────
 👥 Credit: 1
 💰 Total Credit: ₹20
+```
 
-/summary
+Rule:
 
-Shows an overall shop summary.
+```text
+Outstanding < 0
+```
 
-Example:
+---
 
+## `/summary`
+
+Shows the overall shop state.
+
+```text
 📊 SHOP SUMMARY
 
 👥 Customers: 5
@@ -179,15 +374,21 @@ Example:
 💵 Payments: ₹930
 
 💰 Outstanding: ₹70
+```
 
-/customer <name>
+---
+
+## `/customer <name>`
 
 Example:
 
+```text
 /customer Sachin
+```
 
-Output:
+Example response:
 
+```text
 👤 CUSTOMER REPORT
 
 Name: Sachin
@@ -197,215 +398,312 @@ Telegram ID: 1999014485
 💵 Payment: ₹250
 
 🔴 Due: ₹50
+```
 
-Request Safety
+---
 
-The project protects against duplicate and conflicting requests.
+# Request Lifecycle
 
-Duplicate payment request
+## PaymentRequest
 
-If a customer already has a pending payment request:
+```text
+PENDING
+   │
+   ├── APPROVED
+   │      └── PAYMENT transaction created
+   │
+   └── REJECTED
+          └── No PAYMENT transaction
+```
 
+## UndoRequest
+
+```text
+PENDING
+   │
+   ├── APPROVED
+   │      └── Associated purchase removed
+   │
+   └── REJECTED
+          └── Purchase remains
+```
+
+A request that is no longer `PENDING` must not be processed again.
+
+---
+
+# Ledger Rules
+
+Transactions currently support:
+
+```text
+PURCHASE
+PAYMENT
+REVERSAL
+```
+
+The active khata calculation is:
+
+```text
+Outstanding = Total Purchase - Total Payment
+```
+
+## Account States
+
+### Unpaid
+
+```text
+Outstanding > 0
+```
+
+The customer owes money.
+
+### Paid
+
+```text
+Outstanding = 0
+```
+
+The customer is fully settled.
+
+### Credit
+
+```text
+Outstanding < 0
+```
+
+The customer has paid more than their recorded purchases.
+
+Example:
+
+```text
+Purchase = ₹100
+Payment  = ₹120
+Outstanding = -₹20
+```
+
+This represents:
+
+```text
+Customer Credit = ₹20
+```
+
+not additional debt.
+
+---
+
+# Safety and Validation
+
+## Duplicate Payment Protection
+
+A customer cannot create multiple pending payment requests at the same time.
+
+Error/reason:
+
+```text
 PENDING_PAYMENT_EXISTS
+```
 
-The second pending payment request is blocked.
+## Duplicate Undo Protection
 
-Duplicate undo request
+A customer cannot create multiple pending undo requests at the same time.
 
-If a customer already has a pending undo request:
+Error/reason:
 
+```text
 PENDING_UNDO_EXISTS
+```
 
-The second pending undo request is blocked.
-
-Payment / Undo conflict
+## Payment / Undo Conflict Protection
 
 A pending payment request blocks a new undo request.
 
 A pending undo request blocks a new payment request.
 
-This prevents two simultaneous pending request types from conflicting with each other.
+This prevents conflicting pending operations for the same customer.
 
-Payment Safety
+---
 
-The Owner Bot validates payment requests before creating an actual payment transaction.
+## Payment Approval Validation
 
-Rules include:
+Before an owner-approved payment is added to the ledger:
 
-Payment amount must be positive
-Payment amount must be finite
-Customer must exist
-Customer must have outstanding balance
-Payment must not exceed outstanding
+- the payment amount must be positive
+- the payment amount must be finite
+- the customer must exist
+- the customer must have an outstanding balance
+- the payment must not exceed the current outstanding amount
 
 Example:
 
+```text
 Outstanding = ₹50
 Requested Payment = ₹60
+```
 
 Result:
 
+```text
 ❌ Approval blocked
 ❌ No PAYMENT transaction
 ❌ Khata unchanged
+```
 
-The customer is notified that the claimed payment amount could not be approved.
+The customer is notified that the requested amount could not be approved.
 
-Transaction Model
+---
 
-Transactions currently support:
+## Duplicate Approval Protection
 
-PURCHASE
-PAYMENT
-REVERSAL
+Payment and undo requests use state transitions so that an already processed request cannot simply be approved a second time.
 
-Important fields include:
+The expected behavior is:
 
-customerId
-type
-amount
-telegramMessageId
-telegramUpdateId
-shopId
+```text
+First approval  → ✅ allowed
+Second approval → ❌ blocked
+```
 
-The active ledger calculation uses:
+This has been independently tested at the service layer for both payment and undo requests.
 
-PURCHASE
-PAYMENT
+---
 
-as:
+# Notifications
 
-Outstanding = Total Purchase - Total Payment
+## Customer → Owner
 
-User Model
+The Owner Bot receives notifications when a customer:
 
-The User model contains:
+```text
+records a purchase
+submits a payment request
+submits an undo request
+```
 
-telegramUserId
-name
-username
-role
-shopId
+## Owner → Customer
 
-Roles:
+The Customer Bot can notify customers when the owner:
 
-OWNER
-CUSTOMER
+```text
+✅ approves a payment
+❌ rejects a payment
+✅ approves an undo
+❌ rejects an undo
+⚠️ blocks an invalid payment approval
+```
 
-Customer accounts are intentionally preserved when ledger data is cleared.
+The notification layer is intentionally separate from the Customer Bot's main message-processing flow.
 
-PaymentRequest
+---
 
-A PaymentRequest represents a customer claim that a payment has been made.
+# Ledger Cleanup
 
-Typical lifecycle:
+Cleanup logic is implemented in:
 
-PENDING
-   ↓
-APPROVED
-
-or:
-
-PENDING
-   ↓
-REJECTED
-
-A pending payment request does not itself modify the ledger.
-
-Only an approved payment creates the actual PAYMENT transaction.
-
-UndoRequest
-
-An UndoRequest references a specific transaction.
-
-Typical lifecycle:
-
-PENDING
-   ↓
-APPROVED
-
-or:
-
-PENDING
-   ↓
-REJECTED
-
-An approved undo removes the associated purchase transaction.
-
-If the referenced transaction no longer exists, the request is treated as stale and must not remove another transaction.
-
-Owner Reports
-
-Reporting logic is kept in:
-
-src/services/ownerReportService.js
-
-Available service functions include:
-
-getCustomerFinancialReports()
-getUnpaidCustomers()
-getPaidCustomers()
-getCreditCustomers()
-getShopSummary()
-getCustomerReportByName()
-
-The reports use MongoDB aggregation to calculate customer totals efficiently.
-
-Data Cleanup
-
-Ledger cleanup logic is kept in:
-
+```text
 src/services/dataCleanupService.js
+```
 
-The cleanup function:
+The service exposes:
 
+```text
 deleteAllLedgerData()
+```
 
-deletes:
+## Data removed
 
+```text
 Transactions       ✅
 UndoRequests       ✅
 PaymentRequests    ✅
+```
 
-and preserves:
+## Data preserved
 
+```text
 Users / Customers  ✅
+```
 
-The cleanup service was tested independently and verified that customer records remain after ledger data is cleared.
+The cleanup service has been tested to confirm that transactional data is removed while customer accounts remain.
 
-Owner cleanup command
+---
 
-The Owner Bot can expose:
+## Owner Cleanup Command
 
+The intended owner command is:
+
+```text
 /delete-data
+```
 
-The intended flow is:
+Expected flow:
 
+```text
 /delete-data
-       ↓
-⚠️ Warning
-       ↓
+        ↓
+⚠️ Confirmation
+        ↓
 [✅ YES, DELETE ALL]
 [❌ NO, CANCEL]
+```
 
-Only an explicitly confirmed destructive operation should clear the ledger.
+After confirmation:
 
-After deletion:
-
+```text
 Transactions       → deleted
 UndoRequests       → deleted
 PaymentRequests    → deleted
 Users / Customers  → preserved
+```
 
-The cancellation path must not change the database.
+The cancellation path must leave all data unchanged.
 
-Project Structure
+Because this is destructive, historical data should be archived or backed up before deletion when record retention is important.
 
-Typical project structure:
+---
 
+# Project Architecture
+
+```text
+                    ┌─────────────────┐
+                    │  Customer Bot   │
+                    │    app.js       │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │    Services     │
+                    ├─────────────────┤
+                    │ Ledger          │
+                    │ PaymentRequest  │
+                    │ UndoRequest     │
+                    │ Owner Reports   │
+                    │ Data Cleanup    │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │    MongoDB      │
+                    ├─────────────────┤
+                    │ Users           │
+                    │ Transactions    │
+                    │ PaymentRequests │
+                    │ UndoRequests    │
+                    └────────▲────────┘
+                             │
+                    ┌────────┴────────┐
+                    │   Owner Bot     │
+                    │  ownerBot.js    │
+                    └─────────────────┘
+```
+
+---
+
+# Project Structure
+
+```text
 sr-khata-ledger-bot/
 │
 ├── src/
+│   │
 │   ├── app.js
 │   ├── ownerBot.js
 │   ├── ownerCleanupCommands.js
@@ -441,312 +739,481 @@ sr-khata-ledger-bot/
 ├── package.json
 ├── package-lock.json
 ├── .env
+├── .gitignore
 └── README.md
+```
 
-The exact set of test/helper files can evolve as the project grows.
+> The exact set of helper/test files may evolve during development.
 
-Environment Variables
+---
 
-Create a local .env file.
+# Database Models
 
-Typical variables are:
+## User
 
+Customer and owner identity data:
+
+```text
+telegramUserId
+name
+username
+role
+shopId
+```
+
+Roles:
+
+```text
+OWNER
+CUSTOMER
+```
+
+Customer records are intentionally preserved during ledger cleanup.
+
+---
+
+## Transaction
+
+Actual ledger activity.
+
+```text
+shopId
+customerId
+type
+amount
+telegramMessageId
+telegramUpdateId
+createdAt
+updatedAt
+```
+
+Transaction types:
+
+```text
+PURCHASE
+PAYMENT
+REVERSAL
+```
+
+---
+
+## PaymentRequest
+
+Represents a customer claim that a payment was made.
+
+Important concept:
+
+```text
+PaymentRequest != PAYMENT transaction
+```
+
+A payment request remains outside the ledger until the owner approves it.
+
+---
+
+## UndoRequest
+
+References a specific transaction that the customer wants removed.
+
+A stale request must never cause an unrelated transaction to be deleted.
+
+---
+
+# Services
+
+## `ledgerService.js`
+
+Responsible for ledger operations such as:
+
+```text
+createTransaction()
+getCustomerTotal()
+getCustomerHistory()
+deleteTransactionById()
+undoLastTransaction()
+```
+
+## `paymentRequestService.js`
+
+Handles payment request lifecycle:
+
+```text
+createPaymentRequest()
+findPendingPaymentRequest()
+getPaymentRequestById()
+getPendingPaymentRequests()
+approvePaymentRequest()
+rejectPaymentRequest()
+```
+
+Includes duplicate pending-request protection.
+
+## `undoRequestService.js`
+
+Handles undo request lifecycle:
+
+```text
+createUndoRequest()
+findPendingUndoRequest()
+getUndoRequestById()
+getPendingUndoRequests()
+approveUndoRequest()
+rejectUndoRequest()
+```
+
+Includes duplicate and cross-request conflict protection.
+
+## `ownerReportService.js`
+
+Provides:
+
+```text
+getCustomerFinancialReports()
+getUnpaidCustomers()
+getPaidCustomers()
+getCreditCustomers()
+getShopSummary()
+getCustomerReportByName()
+```
+
+Reporting uses MongoDB aggregation for customer-level calculations.
+
+## `dataCleanupService.js`
+
+Provides:
+
+```text
+deleteAllLedgerData()
+```
+
+Deletes ledger/request collections while preserving users.
+
+---
+
+# Environment Configuration
+
+Create a local `.env` file.
+
+Example:
+
+```env
 OWNER_BOT_TOKEN=your_owner_bot_token
 CUSTOMER_BOT_TOKEN=your_customer_bot_token
 OWNER_TELEGRAM_ID=your_owner_telegram_id
 MONGODB_URI=your_mongodb_connection_string
+```
 
-Never commit real secrets to Git.
+Never commit real credentials.
 
-Recommended .gitignore:
+Recommended `.gitignore`:
 
+```gitignore
 .env
 .env.*
 !.env.example
+```
 
-An .env.example file can contain placeholder values.
+You can maintain an `.env.example` containing placeholders.
 
-Installation
+---
 
-Clone
+# Installation
 
+## 1. Clone
+
+```bash
 git clone <your-repository-url>
 cd sr-khata-ledger-bot
+```
 
-Install dependencies
+## 2. Install dependencies
 
+```bash
 npm install
+```
 
-Configure environment
+## 3. Configure environment
 
-Create .env:
+Create `.env` and provide:
 
+```env
 OWNER_BOT_TOKEN=
 CUSTOMER_BOT_TOKEN=
 OWNER_TELEGRAM_ID=
 MONGODB_URI=
+```
 
-Fill in the real values locally.
+---
 
-Running
+# Running the Bots
 
-Customer Bot
+## Customer Bot
 
+```bash
 node src/app.js
+```
 
-Expected startup:
+Expected:
 
+```text
 Customer Bot is running...
 MongoDB Connected Successfully ✅
+```
 
-Owner Bot
+## Owner Bot
 
+```bash
 node src/ownerBot.js
+```
 
-Expected startup:
+Expected:
 
+```text
 MongoDB Connected Successfully ✅
 Owner Bot is running...
+```
 
-Treat the two bots as separate processes.
+Run the bots as separate processes.
 
-Testing
+---
 
-Service logic is tested independently before Telegram integration.
+# Testing
 
-Customer totals
+The project follows a service-first testing approach: business logic is verified independently before relying on Telegram integration.
 
+## Customer totals
+
+```bash
 node src/testTotal.js
+```
 
-Payment request
+## Payment request creation
 
+```bash
 node src/testPaymentRequest.js
+```
 
-Pending payment requests
+## Pending payments
 
+```bash
 node src/testPendingPayment.js
+```
 
-Duplicate payment protection
+## Duplicate payment protection
 
+```bash
 node src/testDuplicatePaymentRequest.js
+```
 
-Duplicate undo protection
+## Duplicate undo protection
 
+```bash
 node src/testDuplicateUndoRequest.js
+```
 
-Payment / Undo conflict protection
+## Request conflict protection
 
+```bash
 node src/testRequestConflict.js
+```
 
-Payment approval state protection
+## Payment approval state protection
 
+```bash
 node src/testPaymentApprovalRace.js
+```
 
-Undo approval state protection
+## Undo approval state protection
 
+```bash
 node src/testUndoApprovalRace.js
+```
 
-Owner report calculation
+## Owner reports
 
+```bash
 node src/testOwnerReports.js
+```
 
-Owner report categories
+## Owner report categories
 
+```bash
 node src/testOwnerReportCategories.js
+```
 
-Data cleanup
+## Ledger cleanup
 
+```bash
 node src/testDataCleanupService.js
+```
 
-Syntax Checks
+---
 
-Before starting a bot, check JavaScript syntax.
+# Syntax Validation
 
-Customer Bot:
+Before starting a modified bot:
 
+```bash
 node --check src/app.js
+```
 
-Owner Bot:
-
+```bash
 node --check src/ownerBot.js
+```
 
-A successful node --check normally produces no output.
+A successful `node --check` normally prints nothing.
 
-No output means Node did not find a syntax error.
+That means Node found no JavaScript syntax error.
 
-Notifications
+---
 
-Customer → Owner
+# Security
 
-Purchase:
+## Owner authorization
 
-20 cig
+Owner-only functionality must remain protected by the configured owner Telegram ID.
 
-creates a purchase transaction and sends an owner notification.
-
-Payment claim:
-
--20 cash diya
-
-creates a pending payment request and sends an owner notification.
-
-Undo:
-
-/undo
-
-creates a pending undo request and sends an owner notification.
-
-Owner → Customer
-
-Owner actions can notify the customer through the Customer Bot:
-
-✅ Payment Approved
-❌ Payment Request Rejected
-✅ Undo Request Approved
-❌ Undo Request Rejected
-
-Accounting States
-
-The current business meaning of the balance is:
-
-Outstanding > 0
-    → Customer owes money
-
-Outstanding = 0
-    → Customer is fully settled
-
-Outstanding < 0
-    → Customer has credit / overpayment
-
-Example:
-
-Purchase = ₹100
-Payment  = ₹120
-
-Outstanding = -₹20
-
-This should be treated as:
-
-Customer Credit = ₹20
-
-not as a debt.
-
-Recommended Operational Workflow
-
-A normal customer transaction:
-
-Customer purchase
-       ↓
-PURCHASE transaction
-       ↓
-Customer checks /total
-       ↓
-Customer pays shop
-       ↓
-Payment verification request
-       ↓
-Owner verifies payment
-       ↓
-Approve / Reject
-       ↓
-Customer notified
-
-For an incorrect purchase:
-
-Customer notices mistake
-       ↓
-/undo
-       ↓
-UndoRequest PENDING
-       ↓
-Owner reviews request
-       ↓
-Approve / Reject
-       ↓
-Customer notified
-
-Ledger Reset Workflow
-
-When the owner intentionally wants to reset historical ledger data:
-
-All customers settle balances
-       ↓
-Owner checks /report
-       ↓
-Owner checks /summary
-       ↓
-Archive/export important history
-       ↓
-/delete-data
-       ↓
-Confirm
-       ↓
-Ledger/request collections cleared
-       ↓
-Customers remain registered
-
-Because deletion removes historical transactions, important records should be archived or backed up before destructive cleanup.
-
-Security
-
-Owner authorization
-
-Owner Bot operations must remain protected by the configured owner Telegram ID.
-
-Bot tokens
+## Secrets
 
 Never publish:
 
+```text
 OWNER_BOT_TOKEN
 CUSTOMER_BOT_TOKEN
-
-MongoDB credentials
-
-Never publish:
-
 MONGODB_URI
+```
 
-Destructive operations
+## Destructive operations
 
-Ledger deletion should require explicit owner confirmation.
+Ledger cleanup should require explicit confirmation.
 
-Source control
+## Source control
 
-Do not commit .env, database credentials, or private tokens.
+Do not commit:
 
-Development Guidelines
+```text
+.env
+private tokens
+database credentials
+```
 
-Keep business logic in service modules.
+---
 
-Keep Telegram handlers in the bot modules.
+# Production Hardening
 
-Test service logic independently before Telegram integration.
+The service layer has been tested for:
 
-Avoid changing working customer workflows when adding owner features.
+```text
+✅ duplicate payment protection
+✅ duplicate undo protection
+✅ payment/undo request conflicts
+✅ payment approval state protection
+✅ undo approval state protection
+✅ payment-over-outstanding validation
+```
 
-Run node --check before starting a modified bot.
+Before calling the system fully production-ready, the complete Owner Bot approval operations should also be reviewed for transaction-level consistency under concurrent callbacks, especially:
 
-Use test data for destructive cleanup tests.
+```text
+Payment Approval
+Undo Approval
+```
 
-Never test destructive commands against production data.
+The goal is to ensure that request state changes and ledger mutations cannot become inconsistent if multiple owner callbacks are processed nearly simultaneously.
 
-Keep secrets out of source control.
+---
 
-Current Status
+# Development Guidelines
 
-The current project has been tested for:
+- Keep business logic in service modules.
+- Keep Telegram interaction logic in the bot modules.
+- Test service logic independently before integration.
+- Avoid changing working customer workflows unnecessarily.
+- Run `node --check` before starting modified bots.
+- Use dedicated test data for destructive tests.
+- Never test destructive cleanup against production data.
+- Keep secrets outside source control.
+- Prefer clear request states such as `PENDING`, `APPROVED`, and `REJECTED`.
+- Preserve customer identity data separately from disposable ledger history.
 
+---
+
+# Operational Workflow
+
+## Normal transaction
+
+```text
+Customer purchase
+        ↓
+PURCHASE transaction
+        ↓
+Customer checks /total
+        ↓
+Customer makes payment
+        ↓
+Payment verification request
+        ↓
+Owner reviews payment
+        ↓
+Approve / Reject
+        ↓
+Customer notified
+```
+
+## Incorrect purchase
+
+```text
+Customer notices mistake
+        ↓
+/undo
+        ↓
+UndoRequest PENDING
+        ↓
+Owner reviews
+        ↓
+Approve / Reject
+        ↓
+Customer notified
+```
+
+## Ledger reset
+
+```text
+Customers settle balances
+        ↓
+Owner checks /report
+        ↓
+Owner checks /summary
+        ↓
+Archive important history
+        ↓
+/delete-data
+        ↓
+Explicit confirmation
+        ↓
+Ledger/request collections cleared
+        ↓
+Customer accounts preserved
+```
+
+---
+
+# Current Status
+
+The implemented workflow has been tested for:
+
+```text
 ✅ Purchase recording
 ✅ Customer totals
 ✅ Customer history
 ✅ Payment request creation
-✅ Payment verification flow
+✅ Payment approval flow
 ✅ Payment rejection flow
 ✅ Undo request creation
 ✅ Undo approval flow
 ✅ Undo rejection flow
-✅ Customer notifications
 ✅ Owner notifications
+✅ Customer notifications
 ✅ Duplicate payment protection
 ✅ Duplicate undo protection
 ✅ Request conflict protection
@@ -754,29 +1221,22 @@ The current project has been tested for:
 ✅ Payment approval state protection
 ✅ Undo approval state protection
 ✅ Owner reports
-✅ Unpaid customer report
-✅ Paid customer report
-✅ Credit customer report
+✅ Unpaid customer reporting
+✅ Paid customer reporting
+✅ Credit customer reporting
 ✅ Shop summary
-✅ Individual customer report
-✅ Ledger cleanup service
+✅ Individual customer reporting
+✅ Ledger cleanup
 ✅ Customer preservation during cleanup
+```
 
-Production Hardening Notes
+---
 
-The service-level request state transitions have been tested.
+# Future Improvements
 
-Before declaring the application fully production-ready, database consistency around complete approval operations should also be hardened and reviewed under concurrent processing, especially for:
+Potential enhancements include:
 
-Payment Approval
-Undo Approval
-
-The goal is to ensure request state changes and ledger mutations cannot become inconsistent if multiple callbacks are processed at nearly the same time.
-
-Future Improvements
-
-Possible future enhancements:
-
+```text
 - Multi-shop support
 - Staff roles and permissions
 - Customer search by Telegram ID
@@ -785,51 +1245,35 @@ Possible future enhancements:
 - Daily reports
 - Weekly reports
 - Monthly reports
-- Date-range reports
+- Date-range reporting
 - CSV / Excel export
-- Automatic database backups
+- Automated database backups
 - Audit logs
 - Transaction reversal records
 - Rate limiting
 - Structured logging
 - Production deployment
 - Process manager integration
+```
 
-Useful Commands
+---
 
-Syntax:
-
-node --check src/app.js
-node --check src/ownerBot.js
-
-Run Customer Bot:
-
-node src/app.js
-
-Run Owner Bot:
-
-node src/ownerBot.js
-
-Run owner reports test:
-
-node src/testOwnerReports.js
-
-Run cleanup service test:
-
-node src/testDataCleanupService.js
-
-License
+# License
 
 Choose the license appropriate for the project.
 
-For example:
+Example:
 
+```text
 MIT License
+```
 
 Replace this section with the project's actual license if different.
 
-Author
+---
 
-Sachin
+# Author
 
-SR Khata Ledger Bot
+**Sachin**
+
+**SR Khata Ledger Bot**
