@@ -1,13 +1,21 @@
 {
   "name": "sr-khata-ledger-bot",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Telegram-based digital khata ledger and payment verification system",
+  "main": "src/app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/app.js",
+    "start:customer": "node src/app.js",
+    "start:owner": "node src/ownerBot.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "telegram",
+    "telegram-bot",
+    "khata",
+    "ledger",
+    "mongodb"
+  ],
+  "author": "Sachin",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
